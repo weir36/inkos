@@ -9,6 +9,7 @@ import { ContinuityAuditor, type AuditIssue, type AuditResult } from "../agents/
 import { ReviserAgent, type ReviseOutput } from "../agents/reviser.js";
 import { ChapterAnalyzerAgent } from "../agents/chapter-analyzer.js";
 import type { BookConfig } from "../models/book.js";
+import type { ChapterMeta } from "../models/chapter.js";
 
 const ZERO_USAGE = {
   promptTokens: 0,
@@ -320,6 +321,60 @@ describe("PipelineRunner", () => {
       .resolves.toContain("final analyzed emotions");
     await expect(readFile(join(storyDir, "character_matrix.md"), "utf-8"))
       .resolves.toContain("final analyzed matrix");
+
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("reports only resumed chapters in import results", async () => {
+    const { root, runner, state, bookId } = await createRunnerFixture();
+    const now = "2026-03-19T00:00:00.000Z";
+    const existingIndex: ChapterMeta[] = [
+      {
+        number: 1,
+        title: "One",
+        status: "imported",
+        wordCount: 10,
+        createdAt: now,
+        updatedAt: now,
+        auditIssues: [],
+      },
+      {
+        number: 2,
+        title: "Two",
+        status: "imported",
+        wordCount: 20,
+        createdAt: now,
+        updatedAt: now,
+        auditIssues: [],
+      },
+    ];
+    await state.saveChapterIndex(bookId, existingIndex);
+
+    vi.spyOn(ChapterAnalyzerAgent.prototype, "analyzeChapter").mockImplementation(async (input) =>
+      createAnalyzedOutput({
+        chapterNumber: input.chapterNumber,
+        title: input.chapterTitle ?? `Chapter ${input.chapterNumber}`,
+        content: input.chapterContent,
+        wordCount: input.chapterContent.length,
+      }),
+    );
+    vi.spyOn(WriterAgent.prototype, "saveChapter").mockResolvedValue(undefined);
+    vi.spyOn(WriterAgent.prototype, "saveNewTruthFiles").mockResolvedValue(undefined);
+
+    const result = await runner.importChapters({
+      bookId,
+      resumeFrom: 3,
+      chapters: [
+        { title: "One", content: "1111111111" },
+        { title: "Two", content: "22222222222222222222" },
+        { title: "Three", content: "333333333333333" },
+        { title: "Four", content: "4444444444444444444444444" },
+      ],
+    });
+
+    expect(result.importedCount).toBe(2);
+    expect(result.totalWords).toBe("333333333333333".length + "4444444444444444444444444".length);
+    expect(result.nextChapter).toBe(5);
 
     await rm(root, { recursive: true, force: true });
   });

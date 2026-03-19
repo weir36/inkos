@@ -998,6 +998,7 @@ ${matrix}`,
       const analyzer = new ChapterAnalyzerAgent(this.agentCtxFor("chapter-analyzer", input.bookId));
       const writer = new WriterAgent(this.agentCtxFor("writer", input.bookId));
       let totalWords = 0;
+      let importedCount = 0;
 
       for (let i = startFrom - 1; i < input.chapters.length; i++) {
         const ch = input.chapters[i]!;
@@ -1050,15 +1051,16 @@ ${matrix}`,
         // Snapshot state after each chapter for rollback + resume support
         await this.state.snapshotState(input.bookId, chapterNumber);
 
+        importedCount++;
         totalWords += ch.content.length;
       }
 
       const nextChapter = input.chapters.length + 1;
-      log?.info(`Done. ${input.chapters.length} chapters imported, ${totalWords} chars. Next chapter: ${nextChapter}`);
+      log?.info(`Done. ${importedCount} chapters imported, ${totalWords} chars. Next chapter: ${nextChapter}`);
 
       return {
         bookId: input.bookId,
-        importedCount: input.chapters.length,
+        importedCount,
         totalWords,
         nextChapter,
       };
