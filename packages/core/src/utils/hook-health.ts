@@ -1,6 +1,6 @@
 import type { AuditIssue } from "../agents/continuity.js";
 import type { HookRecord, RuntimeStateDelta } from "../models/runtime-state.js";
-import { classifyHookDisposition, collectStaleHookDebt } from "./hook-governance.js";
+import { classifyHookDisposition, collectStaleHookDebt, DEFAULT_STALE_AFTER_CHAPTERS } from "./hook-governance.js";
 
 export function analyzeHookHealth(params: {
   readonly language: "zh" | "en";
@@ -14,8 +14,8 @@ export function analyzeHookHealth(params: {
   readonly newHookBurstThreshold?: number;
 }): AuditIssue[] {
   const maxActiveHooks = params.maxActiveHooks ?? 12;
-  const staleAfterChapters = params.staleAfterChapters ?? 10;
-  const noAdvanceWindow = params.noAdvanceWindow ?? 5;
+  const staleAfterChapters = params.staleAfterChapters ?? DEFAULT_STALE_AFTER_CHAPTERS;
+  const noAdvanceWindow = params.noAdvanceWindow ?? 4;
   const newHookBurstThreshold = params.newHookBurstThreshold ?? 2;
   const issues: AuditIssue[] = [];
 

@@ -314,13 +314,13 @@ export class WriterAgent extends BaseAgent {
     );
     const resolvedRuntimeStateDelta = runtimeStateArtifacts?.resolvedDelta ?? settlement.runtimeStateDelta;
     const priorHookIds = new Set(parsePendingHooksMarkdown(hooks).map((hook) => hook.hookId));
-    const hookHealthIssues = resolvedRuntimeStateDelta
-      && (runtimeStateArtifacts?.snapshot ?? settlement.runtimeStateSnapshot)
+    const hookSnapshot = runtimeStateArtifacts?.snapshot ?? settlement.runtimeStateSnapshot;
+    const hookHealthIssues = hookSnapshot
       ? analyzeHookHealth({
           language: resolvedLanguage,
           chapterNumber,
-          hooks: (runtimeStateArtifacts?.snapshot ?? settlement.runtimeStateSnapshot)!.hooks.hooks,
-          delta: resolvedRuntimeStateDelta,
+          hooks: hookSnapshot.hooks.hooks,
+          delta: resolvedRuntimeStateDelta ?? undefined,
           existingHookIds: [...priorHookIds],
         })
       : [];

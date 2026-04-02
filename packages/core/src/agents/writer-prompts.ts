@@ -45,8 +45,8 @@ export function buildWriterSystemPrompt(
         buildEnglishCoreRules(book),
         buildGovernedInputContract("en", governed),
         buildLengthGuidance(resolvedLengthSpec, "en"),
-        !governed ? buildEnglishAntiAIRules() : "",
-        !governed ? buildEnglishCharacterMethod() : "",
+        buildEnglishAntiAIRules(),
+        buildEnglishCharacterMethod(),
         buildGenreRules(genreProfile, genreBody),
         buildProtagonistRules(bookRules),
         buildBookRulesBody(bookRulesBody),
@@ -55,7 +55,7 @@ export function buildWriterSystemPrompt(
         fanficContext ? buildFanficCanonSection(fanficContext.fanficCanon, fanficContext.fanficMode) : "",
         fanficContext ? buildCharacterVoiceProfiles(fanficContext.fanficCanon) : "",
         fanficContext ? buildFanficModeInstructions(fanficContext.fanficMode, fanficContext.allowedDeviations) : "",
-        !governed ? buildEnglishPreWriteChecklist(book, genreProfile) : "",
+        buildEnglishPreWriteChecklist(book, genreProfile),
         outputSection,
       ]
     : [
@@ -63,8 +63,8 @@ export function buildWriterSystemPrompt(
         buildCoreRules(resolvedLengthSpec),
         buildGovernedInputContract("zh", governed),
         buildLengthGuidance(resolvedLengthSpec, "zh"),
-        !governed ? buildAntiAIExamples() : "",
-        !governed ? buildCharacterPsychologyMethod() : "",
+        buildAntiAIExamples(),
+        buildCharacterPsychologyMethod(),
         !governed ? buildSupportingCharacterMethod() : "",
         !governed ? buildReaderPsychologyMethod() : "",
         !governed ? buildEmotionalPacingMethod() : "",
@@ -79,7 +79,7 @@ export function buildWriterSystemPrompt(
         fanficContext ? buildFanficCanonSection(fanficContext.fanficCanon, fanficContext.fanficMode) : "",
         fanficContext ? buildCharacterVoiceProfiles(fanficContext.fanficCanon) : "",
         fanficContext ? buildFanficModeInstructions(fanficContext.fanficMode, fanficContext.allowedDeviations) : "",
-        !governed ? buildPreWriteChecklist(book, genreProfile) : "",
+        buildPreWriteChecklist(book, genreProfile),
         outputSection,
       ];
 

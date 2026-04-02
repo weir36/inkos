@@ -11,7 +11,7 @@ import {
   type RuntimeStateDelta,
   type StateManifest,
 } from "../models/runtime-state.js";
-import { evaluateHookAdmission } from "../utils/hook-governance.js";
+import { evaluateHookAdmission, AUTO_DEFER_AFTER_CHAPTERS } from "../utils/hook-governance.js";
 import { validateRuntimeState } from "./state-validator.js";
 
 export interface RuntimeStateSnapshot {
@@ -125,6 +125,16 @@ function applyHookOps(hooksState: HooksState, delta: RuntimeStateDelta): HooksSt
       status: "deferred",
       lastAdvancedChapter: Math.max(existing.lastAdvancedChapter, delta.chapter),
     });
+  }
+
+  const autoDeferCutoff = delta.chapter - AUTO_DEFER_AFTER_CHAPTERS;
+  for (const [hookId, hook] of hooksById) {
+    if (
+      (hook.status === "open" || hook.status === "progressing")
+      && hook.lastAdvancedChapter <= autoDeferCutoff
+    ) {
+      hooksById.set(hookId, { ...hook, status: "deferred" });
+    }
   }
 
   return {

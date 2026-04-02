@@ -14,12 +14,18 @@ export interface HookAdmissionDecision {
   readonly matchedHookId?: string;
 }
 
+/** Hooks without advancement for this many chapters are considered stale (warning). */
+export const DEFAULT_STALE_AFTER_CHAPTERS = 8;
+
+/** Hooks without advancement for this many chapters are auto-deferred (hard limit). */
+export const AUTO_DEFER_AFTER_CHAPTERS = 20;
+
 export function collectStaleHookDebt(params: {
   readonly hooks: ReadonlyArray<HookRecord>;
   readonly chapterNumber: number;
   readonly staleAfterChapters?: number;
 }): HookRecord[] {
-  const staleAfterChapters = params.staleAfterChapters ?? 10;
+  const staleAfterChapters = params.staleAfterChapters ?? DEFAULT_STALE_AFTER_CHAPTERS;
   const staleCutoff = params.chapterNumber - staleAfterChapters;
 
   return params.hooks

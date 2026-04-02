@@ -1049,10 +1049,12 @@ export class PipelineRunner {
         },
       );
       totalUsage = PipelineRunner.addUsage(totalUsage, fixResult.tokenUsage);
-      if (fixResult.revisedContent.length > 0) {
+      if (fixResult.revisedContent.length > 0 && fixResult.revisedContent !== finalContent) {
         finalContent = fixResult.revisedContent;
         finalWordCount = fixResult.wordCount;
         revised = true;
+      } else if (fixResult.revisedContent.length > 0 && fixResult.revisedContent === finalContent) {
+        this.config.logger?.warn("[revision] spot-fix returned unchanged content, skipping");
       }
     }
 
@@ -1120,7 +1122,15 @@ export class PipelineRunner {
       );
       totalUsage = PipelineRunner.addUsage(totalUsage, reviseOutput.tokenUsage);
 
-      if (reviseOutput.revisedContent.length === 0) continue;
+      if (reviseOutput.revisedContent.length === 0) {
+        this.config.logger?.warn(`[revision] attempt ${attempt + 1} returned empty content, skipping`);
+        continue;
+      }
+
+      if (reviseOutput.revisedContent === finalContent) {
+        this.config.logger?.warn(`[revision] attempt ${attempt + 1} returned unchanged content, skipping`);
+        continue;
+      }
 
       const normalizedRevision = await this.normalizeDraftLengthIfNeeded({
         bookId,
