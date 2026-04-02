@@ -98,6 +98,35 @@ export function analyzeStyle(text: string, sourceName?: string): StyleProfile {
     ? dialogueLengths.reduce((a, b) => a + b, 0) / dialogueLengths.length
     : 0;
 
+  // Metaphor density: count metaphor patterns per 1000 characters
+  const metaphorRegex = /[像如仿佛似](?:是|同|一般|一样)/g;
+  const metaphorMatches = text.match(metaphorRegex) ?? [];
+  const metaphorDensity = totalChars > 0 ? metaphorMatches.length / (totalChars / 1000) : 0;
+
+  // Emotional temperature: ratio of emotion-laden characters
+  const emotionWords = /[怒恨悲喜乐哭笑惧惊恐愁忧闷烦痛苦怜悯嫉妒羡慕兴奋激动紧张焦虑绝望震惊感动愤怒]/g;
+  const emotionMatches = text.match(emotionWords) ?? [];
+  const emotionalTemperature = chars.length > 0 ? emotionMatches.length / chars.length : 0;
+
+  // Signature vocabulary: top recurring 2-gram and 3-gram frequencies
+  const ngramCounts = new Map<string, number>();
+  const stopWords = new Set(["的是", "了的", "在了", "不是", "他的", "她的", "这个", "那个", "一个", "没有", "已经", "可以", "就是", "因为", "所以", "但是", "而且", "如果", "虽然", "不过"]);
+  for (let i = 0; i < chars.length - 1; i++) {
+    const bigram = chars.slice(i, i + 2);
+    if (!stopWords.has(bigram)) {
+      ngramCounts.set(bigram, (ngramCounts.get(bigram) ?? 0) + 1);
+    }
+    if (i < chars.length - 2) {
+      const trigram = chars.slice(i, i + 3);
+      ngramCounts.set(trigram, (ngramCounts.get(trigram) ?? 0) + 1);
+    }
+  }
+  const signatureVocabulary = [...ngramCounts.entries()]
+    .filter(([, count]) => count >= 5)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([word, frequency]) => ({ word, frequency }));
+
   return {
     avgSentenceLength: Math.round(avgSentenceLength * 10) / 10,
     sentenceLengthStdDev: Math.round(sentenceLengthStdDev * 10) / 10,
@@ -111,6 +140,9 @@ export function analyzeStyle(text: string, sourceName?: string): StyleProfile {
     shortSentenceRatio: Math.round(shortSentenceRatio * 1000) / 1000,
     exclamationDensity: Math.round(exclamationDensity * 10) / 10,
     avgDialogueTurnLength: Math.round(avgDialogueTurnLength * 10) / 10,
+    metaphorDensity: Math.round(metaphorDensity * 10) / 10,
+    emotionalTemperature: Math.round(emotionalTemperature * 10000) / 10000,
+    signatureVocabulary,
     sourceName,
     analyzedAt: new Date().toISOString(),
   };

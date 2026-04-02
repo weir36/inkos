@@ -21,6 +21,7 @@ import { analyzeAITells } from "../agents/ai-tells.js";
 import { analyzeSensitiveWords } from "../agents/sensitive-words.js";
 import { PreflightAgent } from "../agents/preflight.js";
 import { analyzeTensionCurve } from "../agents/tension-curve.js";
+import { OutlineExtenderAgent } from "../agents/outline-extender.js";
 import { StateManager } from "../state/manager.js";
 import { MemoryDB, type Fact } from "../state/memory-db.js";
 import { dispatchNotification, dispatchWebhookEvent } from "../notify/dispatcher.js";
@@ -990,6 +991,12 @@ export class PipelineRunner {
     });
     if (tensionGuidance.diagnoses.some((d) => d.severity !== "info")) {
       this.config.logger?.info(`[tension] ${tensionGuidance.recommendation}`);
+    }
+
+    const outlineExtender = new OutlineExtenderAgent(this.agentCtxFor("outline-extender", bookId));
+    const extenderResult = await outlineExtender.extend({ bookDir, chapterNumber, book });
+    if (extenderResult.extended) {
+      this.config.logger?.info(`[outline-extender] ${extenderResult.message}`);
     }
 
     const preflightContext = this.buildPreflightContext(preflightResult.warnings, tensionGuidance);

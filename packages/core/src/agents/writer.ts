@@ -1035,6 +1035,9 @@ ${overrides}\n`;
       if (profile.vocabularyDiversity) lines.push(`- 词汇多样性(TTR)：${profile.vocabularyDiversity}`);
       if (profile.topPatterns?.length > 0) lines.push(`- 高频句式：${profile.topPatterns.join("、")}`);
       if (profile.rhetoricalFeatures?.length > 0) lines.push(`- 修辞特征：${profile.rhetoricalFeatures.join("、")}`);
+      if (profile.metaphorDensity) lines.push(`- 比喻密度：${profile.metaphorDensity}/千字`);
+      if (profile.emotionalTemperature) lines.push(`- 情绪温度：${(profile.emotionalTemperature * 100).toFixed(1)}%`);
+      if (profile.signatureVocabulary?.length > 0) lines.push(`- 标志性用词：${profile.signatureVocabulary.map((v: { word: string; frequency: number }) => `${v.word}(${v.frequency})`).join("、")}`);
       return lines.length > 0 ? lines.join("\n") : undefined;
     } catch {
       return undefined;

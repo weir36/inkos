@@ -102,6 +102,7 @@ export { StateValidatorAgent } from "./agents/state-validator.js";
 export { PreflightAgent, type PreflightWarning, type PreflightResult, type PreflightInput } from "./agents/preflight.js";
 export { analyzeTensionCurve, type TensionScore, type TensionDiagnosis, type TensionGuidance, type TensionInput } from "./agents/tension-curve.js";
 export { ComparativeCriticAgent, type CritiqueInput, type CritiqueResult, type CritiqueDimension } from "./agents/comparative-critic.js";
+export { OutlineExtenderAgent, type OutlineExtenderInput, type OutlineExtenderResult } from "./agents/outline-extender.js";
 export { loadRuntimeStateSnapshot, buildRuntimeStateArtifacts, saveRuntimeStateSnapshot, loadNarrativeMemorySeed, loadSnapshotCurrentStateFacts, type RuntimeStateArtifacts, type NarrativeMemorySeed } from "./state/runtime-state-store.js";
 export { splitChapters, type SplitChapter } from "./utils/chapter-splitter.js";
 export { countChapterLength, resolveLengthCountingMode, formatLengthCount, buildLengthSpec, isOutsideSoftRange, isOutsideHardRange, chooseNormalizeMode, type LengthLanguage } from "./utils/length-metrics.js";

@@ -121,6 +121,29 @@ export class ComposerAgent extends BaseAgent {
         "Anchor the default planning node for this chapter.",
         plan.intent.outlineNode ? [plan.intent.outlineNode] : [],
       ),
+      this.maybeContextSource(
+        storyDir,
+        "particle_ledger.md",
+        "Track resource/item state changes relevant to this chapter.",
+        plan.intent.mustKeep,
+      ),
+      this.maybeContextSource(
+        storyDir,
+        "subplot_board.md",
+        "Carry forward active subplot threads and their progression status.",
+      ),
+      this.maybeContextSource(
+        storyDir,
+        "emotional_arcs.md",
+        "Maintain emotional arc continuity for characters in scope.",
+        plan.intent.mustKeep,
+      ),
+      this.maybeContextSource(
+        storyDir,
+        "character_matrix.md",
+        "Preserve character interaction history and information boundaries.",
+        plan.intent.mustKeep,
+      ),
     ]);
 
     const planningAnchor = plan.intent.conflicts.length > 0 ? undefined : plan.intent.outlineNode;
