@@ -98,6 +98,48 @@ inkos config show-models        # 查看当前路由
 
 未单独配置的 Agent 自动使用全局模型。
 
+### 本 Fork 增强：黄金三章 + 恐怖题材强化
+
+> 基于 [Narcooo/inkos](https://github.com/Narcooo/inkos) 的增强版本。解决原版管线的**冷启动问题**——新书第 1-3 章因缺乏上下文积累，写作质量远低于后续章节。
+
+**问题背景**：InkOS 的管线天然依赖"滚雪球效应"——每写一章，character_matrix、emotional_arcs、pending_hooks 都在积累，到第 20+ 章时模型拿到的 prompt 极其丰富。但第 1 章时所有 state 文件为空，planner 生成的 intent 只有一句话，composer 选不到任何上下文，导致开篇质量显著偏低。
+
+**本版改动**（3 个文件，+163 行）：
+
+#### 1. Planner 黄金三章富化（`packages/core/src/agents/planner.ts`）
+
+- **`collectMustKeep()`**：第 1-3 章从 story_bible 提取最多 10 个条目（原版仅 2 个），并注入主角全部 `behavioralConstraints`
+- **`deriveGoal()`**：第 1-3 章自动从 `volume_outline.md` 的"黄金三章"段落提取章节目标（如"废弃医院首播，弹幕预警触发核心规则"）
+- **`buildSerialPacingHints()`**：为第 1-3 章新增专属节奏提示，不再被 `chapterNumber > 3` 守卫跳过
+- **`buildGoldenChapterStyleEmphasis()`**：新增方法，为第 1 章注入风格强调（"侧重环境描写和悬念埋设，开头必须有冲击力"）
+
+#### 2. Composer 上下文强制选入（`packages/core/src/agents/composer.ts`）
+
+- **`collectSelectedContext()`**：第 1-3 章**无条件选入** `story_bible.md` 和 `book_rules.md`，不再依赖 mustKeep 引用（原版中 mustKeep 为空时 story_bible 会被跳过）
+- 新增 **`alwaysIncludeContextSource()`** 方法，绕过相关性检查直接注入
+
+#### 3. 恐怖题材 Genre 强化（`packages/core/genres/horror.md`）
+
+原版 horror.md 仅 51 行，相比 sci-fi-suspense.md（91 行）缺少多个关键板块。现扩展至 92 行：
+
+- 新增 **去 AI 味铁律**：禁止长篇内心独白、公式化转折词、元叙事旁白、清单式列举异常现象
+- 新增 **人物设定**：主角动机/弱点要求、配角独立恐惧反应模式、牺牲角色 3 章铺垫规则
+- 新增 **反转技法**：安全感反转、身份反转、规则反转、视角反转
+- 新增 **爽点设计**：规则发现、绝境逃生、反杀/反制、真相揭示 + 情绪曲线规则
+- 审计维度新增 `11`（利益链断裂）和 `27`（敏感词检查）
+
+#### 效果
+
+| 维度 | 原版第 1 章 | 增强后第 1 章 |
+|------|------------|--------------|
+| intent 条目数 | 1-2 条 | 10-15 条 |
+| story_bible 是否注入 | 依赖 mustKeep（通常跳过） | 强制注入 |
+| 角色行为约束 | 不注入 | 全部注入 |
+| 黄金三章目标 | 仅在 writer prompt 层 | planner + composer + writer 三层联动 |
+| horror 审计维度 | 18 个 | 20 个 |
+
+---
+
 ### v0.6 更新
 
 **结构化状态 + 伏笔治理 + 字数治理**
