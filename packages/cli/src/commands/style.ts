@@ -34,6 +34,11 @@ styleCommand
         if (profile.rhetoricalFeatures.length > 0) {
           log(`  Rhetorical features: ${profile.rhetoricalFeatures.join(", ")}`);
         }
+        log(`  Dialogue ratio: ${(profile.dialogueRatio * 100).toFixed(1)}%`);
+        log(`  Ellipsis density: ${profile.ellipsisDensity}/1000 chars`);
+        log(`  Short sentence ratio (≤8 chars): ${(profile.shortSentenceRatio * 100).toFixed(1)}%`);
+        log(`  Exclamation density: ${profile.exclamationDensity}/1000 chars`);
+        log(`  Avg dialogue turn length: ${profile.avgDialogueTurnLength} chars`);
       }
     } catch (e) {
       logError(`Analysis failed: ${e}`);

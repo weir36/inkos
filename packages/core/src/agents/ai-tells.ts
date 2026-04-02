@@ -6,6 +6,10 @@
  * - dim 21: Filler/hedge word density
  * - dim 22: Formulaic transition patterns
  * - dim 23: List-like structure (consecutive same-prefix sentences)
+ * - dim 24: Ellipsis overuse (…… for suspense - HUMAN feature, not AI)
+ * - dim 25: Onomatopoeia independence (sound effects as standalone lines)
+ * - dim 26: Bracket key markers overuse
+ * - dim 27: Dialogue ratio detection
  */
 
 export interface AITellIssue {
@@ -24,6 +28,13 @@ const HEDGE_WORDS = ["似乎", "可能", "或许", "大概", "某种程度上", 
 
 // Formulaic transition words
 const TRANSITION_WORDS = ["然而", "不过", "与此同时", "另一方面", "尽管如此", "话虽如此", "但值得注意的是"];
+
+// Human-style markers (not AI tells - these indicate human writing like 天才俱乐部)
+const HUMAN_ELLIPSIS = "……";
+const HUMAN_BRACKET = "【";
+const HUMAN_ONOMATOPOEIA = ["咔嚓", "嘭", "沙沙", "砰", "叮", "嗖", "轰", "咣", "嘶", "哐"];
+
+const SPEECH_VERBS = ["问道", "说道", "喊道", "回道", "笑道", "怒道", "低声道", "轻声道", "应道", "冷道", "叹道", "骂道", "吼道", "嘀咕道"];
 
 /**
  * Analyze text content for structural AI-tell patterns.
@@ -127,6 +138,98 @@ export function analyzeAITells(content: string): AITellResult {
         suggestion: "变换句式开头：用不同主语、时间词、动作词开头，打破列表感",
       });
     }
+  }
+
+  const ellipsisCount = (content.match(new RegExp(HUMAN_ELLIPSIS, "g")) || []).length;
+  const sentenceCount = content.split(/[。！？]/).filter(s => s.trim().length > 0).length;
+  if (sentenceCount > 10 && ellipsisCount > 0) {
+    const ellipsisRatio = ellipsisCount / (sentenceCount / 10);
+    if (ellipsisRatio > 0.5) {
+      issues.push({
+        severity: "info",
+        category: "悬念省略号",
+        description: `省略号使用${ellipsisCount}次（每10句${ellipsisRatio.toFixed(1)}次），呈现人类悬疑写法`,
+        suggestion: "省略号是制造悬念的人类写法，保持这种风格",
+      });
+    }
+  }
+
+  const onoCount = HUMAN_ONOMATOPOEIA.reduce((count, word) => {
+    const regex = new RegExp(`^${word}[。！？]?$`, "gm");
+    const matches = content.match(regex);
+    return count + (matches?.length ?? 0);
+  }, 0);
+  if (onoCount >= 3) {
+    issues.push({
+      severity: "info",
+      category: "拟声词独立",
+      description: `检测到${onoCount}个独立成段的拟声词（咔嚓/嘭/嗖等），呈现人类动作描写风格`,
+      suggestion: "拟声词独立成段是人类写法，保持这种节奏感",
+    });
+  }
+
+  const bracketCount = (content.match(new RegExp(HUMAN_BRACKET, "g")) || []).length;
+  if (bracketCount >= 3) {
+    issues.push({
+      severity: "info",
+      category: "关键标记",
+      description: `检测到${bracketCount}个【】关键信息标记，呈现人类重点标注风格`,
+      suggestion: "【】标记关键信息是人类写法，保持",
+    });
+  }
+
+  const dialogueCount = (content.match(/[「"\u201c『].*?[」"\u201d』]/g) || []).length;
+  const speechVerbPattern = new RegExp(`(?:${SPEECH_VERBS.join("|")})`, "g");
+  const directSpeech = (content.match(speechVerbPattern) || []).length;
+  const totalDialogue = dialogueCount + directSpeech;
+  if (totalDialogue > 0 && sentenceCount > 0) {
+    const dialogueRatio = totalDialogue / (sentenceCount / 100);
+    if (dialogueRatio > 30) {
+      issues.push({
+        severity: "info",
+        category: "对话驱动",
+        description: `检测到高对话占比（每100句${dialogueRatio.toFixed(0)}句带引号或说话动词），呈现对话驱动剧情的人类风格`,
+        suggestion: "对话多是人类写法，保持高对话占比",
+      });
+    }
+  }
+
+  const allSentences = content.split(/[。！？\n]/).filter(s => s.trim().length > 0);
+  if (allSentences.length > 20) {
+    const shortSentences = allSentences.filter(s => s.trim().length <= 8);
+    const shortRatio = shortSentences.length / allSentences.length;
+    if (shortRatio < 0.2) {
+      issues.push({
+        severity: "warning",
+        category: "短句不足",
+        description: `短句（≤8字）占比仅${(shortRatio * 100).toFixed(0)}%，人类网文大神通常 ≥ 34%。节奏偏平`,
+        suggestion: "增加极短句打破均匀节奏：独立动作句、单字反应、环境音效",
+      });
+    }
+
+    const sentLengths = allSentences.map(s => s.trim().length);
+    const mean = sentLengths.reduce((a, b) => a + b, 0) / sentLengths.length;
+    const stdDev = Math.sqrt(sentLengths.reduce((sum, l) => sum + (l - mean) ** 2, 0) / sentLengths.length);
+    if (stdDev < 10) {
+      issues.push({
+        severity: "warning",
+        category: "句长均匀",
+        description: `句长标准差仅${stdDev.toFixed(1)}字（人类网文通常 ≥ 14），节奏单调如机器`,
+        suggestion: "交替使用极短句（≤5字）和长句（≥30字），制造呼吸感",
+      });
+    }
+  }
+
+  const rhetoricalQuestions = (content.match(/[难道|怎么可能|岂不是|何尝不|怎么会|凭什么|谁让|哪有|哪来的|算什么]/g) || []).length;
+  const questionMarks = (content.match(/？/g) || []).length;
+  const totalRhetorical = rhetoricalQuestions + questionMarks;
+  if (sentenceCount > 20 && totalRhetorical === 0) {
+    issues.push({
+      severity: "info",
+      category: "缺少反问",
+      description: "全文无反问句。人类网文每2000字至少1次反问推进节奏",
+      suggestion: "用反问替代部分陈述句：'他觉得不可能' → '这怎么可能？'",
+    });
   }
 
   return { issues };

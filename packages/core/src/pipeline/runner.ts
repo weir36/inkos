@@ -19,6 +19,8 @@ import type { RadarSource } from "../agents/radar-source.js";
 import { readGenreProfile } from "../agents/rules-reader.js";
 import { analyzeAITells } from "../agents/ai-tells.js";
 import { analyzeSensitiveWords } from "../agents/sensitive-words.js";
+import { PreflightAgent } from "../agents/preflight.js";
+import { analyzeTensionCurve } from "../agents/tension-curve.js";
 import { StateManager } from "../state/manager.js";
 import { MemoryDB, type Fact } from "../state/memory-db.js";
 import { dispatchNotification, dispatchWebhookEvent } from "../notify/dispatcher.js";
@@ -967,6 +969,37 @@ export class PipelineRunner {
       pipelineLang,
     );
 
+    const preflight = new PreflightAgent();
+    const preflightResult = await preflight.run({ bookDir, chapterNumber, genre: book.genre });
+    if (preflightResult.warnings.length > 0) {
+      for (const w of preflightResult.warnings) {
+        const level = w.severity === "critical" ? "warn" : "info";
+        this.config.logger?.[level](`[preflight] [${w.severity}] ${w.category}: ${w.description}`);
+      }
+    }
+
+    const tensionStoryDir = join(bookDir, "story");
+    const [tensionSummaries, tensionArcs] = await Promise.all([
+      readFile(join(tensionStoryDir, "chapter_summaries.md"), "utf-8").catch(() => ""),
+      readFile(join(tensionStoryDir, "emotional_arcs.md"), "utf-8").catch(() => ""),
+    ]);
+    const tensionGuidance = analyzeTensionCurve({
+      chapterSummaries: tensionSummaries,
+      emotionalArcs: tensionArcs,
+      currentChapter: chapterNumber,
+    });
+    if (tensionGuidance.diagnoses.some((d) => d.severity !== "info")) {
+      this.config.logger?.info(`[tension] ${tensionGuidance.recommendation}`);
+    }
+
+    const preflightContext = this.buildPreflightContext(preflightResult.warnings, tensionGuidance);
+    const augmentedWriteInput = preflightContext
+      ? {
+          ...writeInput,
+          externalContext: [writeInput.externalContext, preflightContext].filter(Boolean).join("\n\n"),
+        }
+      : writeInput;
+
     // 1. Write chapter
     const writer = new WriterAgent(this.agentCtxFor("writer", bookId));
     this.logStage(stageLanguage, { zh: "撰写章节草稿", en: "writing chapter draft" });
@@ -974,7 +1007,7 @@ export class PipelineRunner {
       book,
       bookDir,
       chapterNumber,
-      ...writeInput,
+      ...augmentedWriteInput,
       lengthSpec,
       ...(wordCount ? { wordCountOverride: wordCount } : {}),
       ...(temperatureOverride ? { temperatureOverride } : {}),
@@ -1056,74 +1089,78 @@ export class PipelineRunner {
       summary: llmAudit.summary,
     };
 
-    // 3. If audit fails, try auto-revise once
-    if (!auditResult.passed) {
+    // 3. If audit fails, try iterative revision with escalating modes
+    const REVISION_ESCALATION: readonly ReviseMode[] = ["spot-fix", "polish", "rewrite"];
+    const maxRetries = 2;
+
+    for (let attempt = 0; attempt < maxRetries && !auditResult.passed; attempt++) {
       const criticalIssues = auditResult.issues.filter(
         (i) => i.severity === "critical",
       );
-      if (criticalIssues.length > 0) {
-        const reviser = new ReviserAgent(this.agentCtxFor("reviser", bookId));
-        this.logStage(stageLanguage, { zh: "自动修复关键问题", en: "auto-revising critical issues" });
-        const reviseOutput = await reviser.reviseChapter(
-          bookDir,
-          finalContent,
-          chapterNumber,
-          auditResult.issues,
-          "spot-fix",
-          book.genre,
-          {
-            ...reducedControlInput,
-            lengthSpec,
-          },
-        );
-        totalUsage = PipelineRunner.addUsage(totalUsage, reviseOutput.tokenUsage);
+      if (criticalIssues.length === 0) break;
 
-        if (reviseOutput.revisedContent.length > 0) {
-          const normalizedRevision = await this.normalizeDraftLengthIfNeeded({
-            bookId,
-            chapterNumber,
-            chapterContent: reviseOutput.revisedContent,
-            lengthSpec,
-            chapterIntent: writeInput.chapterIntent,
-          });
-          totalUsage = PipelineRunner.addUsage(totalUsage, normalizedRevision.tokenUsage);
-          postReviseCount = normalizedRevision.wordCount;
-          normalizeApplied = normalizeApplied || normalizedRevision.applied;
+      const mode = REVISION_ESCALATION[Math.min(attempt, REVISION_ESCALATION.length - 1)];
+      const reviser = new ReviserAgent(this.agentCtxFor("reviser", bookId));
+      this.logStage(stageLanguage, {
+        zh: `自动修复第 ${attempt + 1}/${maxRetries} 次，模式: ${mode}`,
+        en: `auto-revising attempt ${attempt + 1}/${maxRetries}, mode: ${mode}`,
+      });
 
-          // Guard: reject revision if AI markers increased
-          const preMarkers = analyzeAITells(finalContent);
-          const postMarkers = analyzeAITells(normalizedRevision.content);
-          const preCount = preMarkers.issues.length;
-          const postCount = postMarkers.issues.length;
+      const reviseOutput = await reviser.reviseChapter(
+        bookDir,
+        finalContent,
+        chapterNumber,
+        auditResult.issues,
+        mode,
+        book.genre,
+        {
+          ...reducedControlInput,
+          lengthSpec,
+        },
+      );
+      totalUsage = PipelineRunner.addUsage(totalUsage, reviseOutput.tokenUsage);
 
-          if (postCount > preCount) {
-            // Revision made text MORE AI-like — discard it, keep original
-          } else {
-            finalContent = normalizedRevision.content;
-            finalWordCount = normalizedRevision.wordCount;
-            revised = true;
-            this.assertChapterContentNotEmpty(finalContent, chapterNumber, "revision");
-          }
+      if (reviseOutput.revisedContent.length === 0) continue;
 
-          // Re-audit the (possibly revised) content
-          const reAudit = await auditor.auditChapter(
-            bookDir,
-            finalContent,
-            chapterNumber,
-            book.genre,
-            { ...reducedControlInput, temperature: 0 },
-          );
-          totalUsage = PipelineRunner.addUsage(totalUsage, reAudit.tokenUsage);
-          const reAITells = analyzeAITells(finalContent);
-          const reSensitive = analyzeSensitiveWords(finalContent);
-          const reHasBlocked = reSensitive.found.some((f) => f.severity === "block");
-          auditResult = this.restoreLostAuditIssues(auditResult, {
-            passed: reHasBlocked ? false : reAudit.passed,
-            issues: [...reAudit.issues, ...reAITells.issues, ...reSensitive.issues],
-            summary: reAudit.summary,
-          });
-        }
+      const normalizedRevision = await this.normalizeDraftLengthIfNeeded({
+        bookId,
+        chapterNumber,
+        chapterContent: reviseOutput.revisedContent,
+        lengthSpec,
+        chapterIntent: writeInput.chapterIntent,
+      });
+      totalUsage = PipelineRunner.addUsage(totalUsage, normalizedRevision.tokenUsage);
+      postReviseCount = normalizedRevision.wordCount;
+      normalizeApplied = normalizeApplied || normalizedRevision.applied;
+
+      const preMarkers = analyzeAITells(finalContent);
+      const postMarkers = analyzeAITells(normalizedRevision.content);
+      const preCount = preMarkers.issues.length;
+      const postCount = postMarkers.issues.length;
+
+      if (postCount <= preCount) {
+        finalContent = normalizedRevision.content;
+        finalWordCount = normalizedRevision.wordCount;
+        revised = true;
+        this.assertChapterContentNotEmpty(finalContent, chapterNumber, "revision");
       }
+
+      const reAudit = await auditor.auditChapter(
+        bookDir,
+        finalContent,
+        chapterNumber,
+        book.genre,
+        { ...reducedControlInput, temperature: 0 },
+      );
+      totalUsage = PipelineRunner.addUsage(totalUsage, reAudit.tokenUsage);
+      const reAITells = analyzeAITells(finalContent);
+      const reSensitive = analyzeSensitiveWords(finalContent);
+      const reHasBlocked = reSensitive.found.some((f) => f.severity === "block");
+      auditResult = this.restoreLostAuditIssues(auditResult, {
+        passed: reHasBlocked ? false : reAudit.passed,
+        issues: [...reAudit.issues, ...reAITells.issues, ...reSensitive.issues],
+        summary: reAudit.summary,
+      });
     }
 
     // 4. Save the final chapter and truth files from a single persistence source
@@ -1959,6 +1996,32 @@ ${matrix}`,
       applied: normalized.applied,
       tokenUsage: normalized.tokenUsage,
     };
+  }
+
+  private buildPreflightContext(
+    warnings: ReadonlyArray<import("../agents/preflight.js").PreflightWarning>,
+    tension: import("../agents/tension-curve.js").TensionGuidance,
+  ): string | undefined {
+    const parts: string[] = [];
+
+    const actionableWarnings = warnings.filter((w) => w.severity === "critical" || w.severity === "warning");
+    if (actionableWarnings.length > 0) {
+      parts.push(
+        "## 写前预检警告",
+        ...actionableWarnings.map((w) => `- [${w.severity}] ${w.category}: ${w.description}。${w.suggestion}`),
+      );
+    }
+
+    const actionableDiagnoses = tension.diagnoses.filter((d) => d.severity !== "info");
+    if (actionableDiagnoses.length > 0) {
+      parts.push(
+        "## 张力曲线建议",
+        ...actionableDiagnoses.map((d) => `- ${d.description}`),
+        `建议：${tension.recommendation}`,
+      );
+    }
+
+    return parts.length > 0 ? parts.join("\n") : undefined;
   }
 
   private assertChapterContentNotEmpty(content: string, chapterNumber: number, stage: string): void {

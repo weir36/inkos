@@ -79,6 +79,25 @@ export function analyzeStyle(text: string, sourceName?: string): StyleProfile {
     }
   }
 
+  const totalChars = text.length;
+  const dialogueMatches = text.match(/[「"\u201c『][\s\S]*?[」"\u201d』]/g) ?? [];
+  const dialogueChars = dialogueMatches.reduce((sum, m) => sum + m.length, 0);
+  const dialogueRatio = totalChars > 0 ? dialogueChars / totalChars : 0;
+
+  const ellipsisCount = (text.match(/……/g) ?? []).length;
+  const ellipsisDensity = totalChars > 0 ? ellipsisCount / (totalChars / 1000) : 0;
+
+  const shortSentences = sentences.filter((s) => s.length <= 8);
+  const shortSentenceRatio = sentences.length > 0 ? shortSentences.length / sentences.length : 0;
+
+  const exclamationCount = (text.match(/！/g) ?? []).length;
+  const exclamationDensity = totalChars > 0 ? exclamationCount / (totalChars / 1000) : 0;
+
+  const dialogueLengths = dialogueMatches.map((m) => m.length);
+  const avgDialogueTurnLength = dialogueLengths.length > 0
+    ? dialogueLengths.reduce((a, b) => a + b, 0) / dialogueLengths.length
+    : 0;
+
   return {
     avgSentenceLength: Math.round(avgSentenceLength * 10) / 10,
     sentenceLengthStdDev: Math.round(sentenceLengthStdDev * 10) / 10,
@@ -87,6 +106,11 @@ export function analyzeStyle(text: string, sourceName?: string): StyleProfile {
     vocabularyDiversity: Math.round(vocabularyDiversity * 1000) / 1000,
     topPatterns,
     rhetoricalFeatures,
+    dialogueRatio: Math.round(dialogueRatio * 1000) / 1000,
+    ellipsisDensity: Math.round(ellipsisDensity * 10) / 10,
+    shortSentenceRatio: Math.round(shortSentenceRatio * 1000) / 1000,
+    exclamationDensity: Math.round(exclamationDensity * 10) / 10,
+    avgDialogueTurnLength: Math.round(avgDialogueTurnLength * 10) / 10,
     sourceName,
     analyzedAt: new Date().toISOString(),
   };

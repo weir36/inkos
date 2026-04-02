@@ -65,7 +65,6 @@ export class PlannerAgent extends BaseAgent {
     const parsedRules = parseBookRules(bookRulesRaw);
     const mustKeep = this.collectMustKeep(currentState, storyBible);
     const mustAvoid = this.collectMustAvoid(currentFocus, parsedRules.rules.prohibitions);
-    const styleEmphasis = this.collectStyleEmphasis(authorIntent, currentFocus);
     const conflicts = this.collectConflicts(input.externalContext, outlineNode, volumeOutline);
     const planningAnchor = conflicts.length > 0 ? undefined : outlineNode;
     const memorySelection = await retrieveMemorySelection({
@@ -75,6 +74,12 @@ export class PlannerAgent extends BaseAgent {
       outlineNode: planningAnchor,
       mustKeep,
     });
+    const summaryTexts = memorySelection.summaries.map((s) => `${s.events} ${s.mood} ${s.chapterType}`);
+    const serialPacingHints = this.buildSerialPacingHints(input.chapterNumber, summaryTexts);
+    const styleEmphasis = this.unique([
+      ...this.collectStyleEmphasis(authorIntent, currentFocus),
+      ...serialPacingHints,
+    ]).slice(0, 6);
     const hookAgenda = buildPlannerHookAgenda({
       hooks: memorySelection.activeHooks,
       chapterNumber: input.chapterNumber,
@@ -291,6 +296,48 @@ export class PlannerAgent extends BaseAgent {
       /^\((describe|briefly describe|write)\b[\s\S]*\)$/i.test(normalized)
       || /^（(?:在这里描述|描述|填写|写下)[\s\S]*）$/u.test(normalized)
     );
+  }
+
+  private buildSerialPacingHints(chapterNumber: number, summaries: ReadonlyArray<string>): string[] {
+    const hints: string[] = [];
+    const recentCount = summaries.length;
+
+    const chapterInArc = ((chapterNumber - 1) % 40) + 1;
+    if (chapterInArc <= 5) {
+      hints.push("当前处于新弧铺垫期，侧重环境描写和悬念埋设，节奏放缓");
+    } else if (chapterInArc >= 35) {
+      hints.push("当前弧接近高潮，加速推进主线冲突，减少支线戏份");
+    }
+
+    if (chapterNumber > 3 && chapterNumber % 50 === 0) {
+      hints.push("里程碑章节：安排阶段性成就（排名跃升/进入新区域/关系突破）");
+    }
+
+    if (chapterNumber > 3 && chapterNumber % 10 === 0) {
+      hints.push("每十章回顾节点：安排主角简短回顾成长，让读者感受进步");
+    }
+
+    if (recentCount >= 3) {
+      const lastThree = summaries.slice(-3).join(" ");
+      const hasClimax = /高潮|战斗|爆发|反转|climax|battle|reveal/i.test(lastThree);
+      if (hasClimax) {
+        hints.push("近期有高潮章节，本章安排2-3章的喘息段：处理后果、推感情线、日常互动");
+      }
+    }
+
+    if (recentCount >= 4) {
+      const lastFour = summaries.slice(-4).join(" ");
+      const pushCount = (lastFour.match(/推进|reveal|escalat/gi) ?? []).length;
+      if (pushCount >= 3) {
+        hints.push("连续多章推进/揭示，节奏趋于单调，本章安排节奏变化（切日常/感情/幽默）");
+      }
+    }
+
+    if (chapterNumber > 100 && chapterNumber % 120 < 5) {
+      hints.push("接近环境重置节点：考虑让主角进入新环境，重回弱者视角");
+    }
+
+    return hints;
   }
 
   private containsChinese(content: string): boolean {
