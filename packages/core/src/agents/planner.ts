@@ -2,7 +2,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { BaseAgent } from "./base.js";
 import type { BookConfig } from "../models/book.js";
-import { parseBookRules } from "../models/book-rules.js";
+import { parseBookRules, type ParsedBookRules } from "../models/book-rules.js";
 import { ChapterIntentSchema, type ChapterConflict, type ChapterIntent } from "../models/input-governance.js";
 import {
   buildPlannerHookAgenda,
@@ -61,9 +61,9 @@ export class PlannerAgent extends BaseAgent {
     ]);
 
     const outlineNode = this.findOutlineNode(volumeOutline, input.chapterNumber);
-    const goal = this.deriveGoal(input.externalContext, currentFocus, authorIntent, outlineNode, input.chapterNumber);
+    const goal = this.deriveGoal(input.externalContext, currentFocus, authorIntent, outlineNode, input.chapterNumber, volumeOutline);
     const parsedRules = parseBookRules(bookRulesRaw);
-    const mustKeep = this.collectMustKeep(currentState, storyBible);
+    const mustKeep = this.collectMustKeep(currentState, storyBible, input.chapterNumber, parsedRules);
     const mustAvoid = this.collectMustAvoid(currentFocus, parsedRules.rules.prohibitions);
     const conflicts = this.collectConflicts(input.externalContext, outlineNode, volumeOutline);
     const planningAnchor = conflicts.length > 0 ? undefined : outlineNode;
@@ -76,9 +76,11 @@ export class PlannerAgent extends BaseAgent {
     });
     const summaryTexts = memorySelection.summaries.map((s) => `${s.events} ${s.mood} ${s.chapterType}`);
     const serialPacingHints = this.buildSerialPacingHints(input.chapterNumber, summaryTexts);
+    const goldenStyleEmphasis = this.buildGoldenChapterStyleEmphasis(input.chapterNumber);
     const styleEmphasis = this.unique([
       ...this.collectStyleEmphasis(authorIntent, currentFocus),
       ...serialPacingHints,
+      ...goldenStyleEmphasis,
     ]).slice(0, 6);
     const hookAgenda = buildPlannerHookAgenda({
       hooks: memorySelection.activeHooks,
@@ -123,11 +125,19 @@ export class PlannerAgent extends BaseAgent {
     authorIntent: string,
     outlineNode: string | undefined,
     chapterNumber: number,
+    volumeOutline: string,
   ): string {
     const first = this.extractFirstDirective(externalContext);
     if (first) return first;
     const focus = this.extractFocusGoal(currentFocus);
     if (focus) return focus;
+
+    // For golden chapters (1-3), try to find specific chapter description in volume_outline
+    if (chapterNumber <= 3) {
+      const goldenGoal = this.extractGoldenChapterGoal(volumeOutline, chapterNumber);
+      if (goldenGoal) return goldenGoal;
+    }
+
     const outline = this.extractFirstDirective(outlineNode);
     if (outline) return outline;
     const author = this.extractFirstDirective(authorIntent);
@@ -135,11 +145,26 @@ export class PlannerAgent extends BaseAgent {
     return `Advance chapter ${chapterNumber} with clear narrative focus.`;
   }
 
-  private collectMustKeep(currentState: string, storyBible: string): string[] {
-    return this.unique([
-      ...this.extractListItems(currentState, 2),
-      ...this.extractListItems(storyBible, 2),
-    ]).slice(0, 4);
+  private collectMustKeep(
+    currentState: string,
+    storyBible: string,
+    chapterNumber: number,
+    bookRules: ParsedBookRules,
+  ): string[] {
+    // For golden chapters (1-3), extract more items from story_bible
+    const storyBibleLimit = chapterNumber <= 3 ? 10 : 2;
+    const mustKeepItems = this.unique([
+      ...this.extractListItems(currentState, chapterNumber <= 3 ? 10 : 2),
+      ...this.extractListItems(storyBible, storyBibleLimit),
+    ]);
+
+    // For golden chapters, inject ALL protagonist behavioralConstraints from book_rules
+    if (chapterNumber <= 3 && bookRules.rules.protagonist?.behavioralConstraints) {
+      const constraints = bookRules.rules.protagonist.behavioralConstraints;
+      mustKeepItems.push(...constraints);
+    }
+
+    return mustKeepItems.slice(0, chapterNumber <= 3 ? 15 : 4);
   }
 
   private collectMustAvoid(currentFocus: string, prohibitions: ReadonlyArray<string>): string[] {
@@ -189,6 +214,41 @@ export class PlannerAgent extends BaseAgent {
         resolution: "allow local outline deferral",
       },
     ];
+  }
+
+  private extractGoldenChapterGoal(volumeOutline: string, chapterNumber: number): string | undefined {
+    // Look for '黄金三章' section first
+    const goldenSection = this.extractSection(volumeOutline, ["黄金三章", "golden chapters", "golden three chapters"]);
+    if (goldenSection) {
+      // Look for specific chapter pattern within the golden section
+      const chapterPattern = new RegExp(`第\\s*${chapterNumber}\\s*章[:：\\-\\s]*(.+?)(?=第\\s*${chapterNumber + 1}\\s*章|$)`, "i");
+      const match = goldenSection.match(chapterPattern);
+      if (match?.[1]) {
+        return match[1].trim();
+      }
+    }
+
+    // Fallback: search entire volume_outline for chapter description
+    const lines = volumeOutline.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      // Match patterns like "第1章：描述" or "第一章：描述" or "Chapter 1: description"
+      const patterns = [
+        new RegExp(`^#+\\s*第\\s*${chapterNumber}\\s*章[:：\\-\\s]*(.+)$`, "i"),
+        new RegExp(`^[-*]\\s*第\\s*${chapterNumber}\\s*章[:：\\-\\s]*(.+)$`, "i"),
+        new RegExp(`^#+\\s*Chapter\\s*${chapterNumber}[:：\\-\\s]*(.+)$`, "i"),
+        new RegExp(`^[-*]\\s*Chapter\\s*${chapterNumber}[:：\\-\\s]*(.+)$`, "i"),
+      ];
+
+      for (const pattern of patterns) {
+        const match = line.match(pattern);
+        if (match?.[1]) {
+          return match[1].trim();
+        }
+      }
+    }
+
+    return undefined;
   }
 
   private extractFirstDirective(content?: string): string | undefined {
@@ -302,6 +362,15 @@ export class PlannerAgent extends BaseAgent {
     const hints: string[] = [];
     const recentCount = summaries.length;
 
+    // Golden chapters (1-3) specific pacing hints - NO chapterNumber > 3 guard
+    if (chapterNumber === 1) {
+      hints.push("铺设核心冲突，建立读者代入感。开篇直接进入冲突场景。");
+    } else if (chapterNumber === 2) {
+      hints.push("展现金手指/核心能力初现");
+    } else if (chapterNumber === 3) {
+      hints.push("确立第一个阶段性目标，章尾钩子要足够强");
+    }
+
     const chapterInArc = ((chapterNumber - 1) % 40) + 1;
     if (chapterInArc <= 5) {
       hints.push("当前处于新弧铺垫期，侧重环境描写和悬念埋设，节奏放缓");
@@ -338,6 +407,13 @@ export class PlannerAgent extends BaseAgent {
     }
 
     return hints;
+  }
+
+  private buildGoldenChapterStyleEmphasis(chapterNumber: number): string[] {
+    if (chapterNumber === 1) {
+      return ["当前处于新弧铺垫期，侧重环境描写和悬念埋设，节奏可适当放缓但开头必须有冲击力"];
+    }
+    return [];
   }
 
   private containsChinese(content: string): boolean {

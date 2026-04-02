@@ -40,7 +40,7 @@ export class ComposerAgent extends BaseAgent {
     const runtimeDir = join(storyDir, "runtime");
     await mkdir(runtimeDir, { recursive: true });
 
-    const selectedContext = await this.collectSelectedContext(storyDir, input.plan);
+    const selectedContext = await this.collectSelectedContext(storyDir, input.plan, input.chapterNumber);
     const contextPackage = ContextPackageSchema.parse({
       chapter: input.chapterNumber,
       selectedContext,
@@ -100,7 +100,13 @@ export class ComposerAgent extends BaseAgent {
     };
   }
 
-  private async collectSelectedContext(storyDir: string, plan: PlanChapterOutput): Promise<ContextPackage["selectedContext"]> {
+  private async collectSelectedContext(
+    storyDir: string,
+    plan: PlanChapterOutput,
+    chapterNumber: number,
+  ): Promise<ContextPackage["selectedContext"]> {
+    const isGoldenChapter = chapterNumber <= 3;
+
     const entries = await Promise.all([
       this.maybeContextSource(storyDir, "current_focus.md", "Current task focus for this chapter."),
       this.maybeContextSource(
@@ -109,12 +115,19 @@ export class ComposerAgent extends BaseAgent {
         "Preserve hard state facts referenced by mustKeep.",
         plan.intent.mustKeep,
       ),
-      this.maybeContextSource(
-        storyDir,
-        "story_bible.md",
-        "Preserve canon constraints referenced by mustKeep.",
-        plan.intent.mustKeep,
-      ),
+      // For golden chapters (1-3), always include story_bible.md regardless of mustKeep
+      isGoldenChapter
+        ? this.alwaysIncludeContextSource(storyDir, "story_bible.md", "Golden chapter: always include story bible for canon foundation.")
+        : this.maybeContextSource(
+            storyDir,
+            "story_bible.md",
+            "Preserve canon constraints referenced by mustKeep.",
+            plan.intent.mustKeep,
+          ),
+      // For golden chapters (1-3), always include book_rules.md body
+      isGoldenChapter
+        ? this.alwaysIncludeContextSource(storyDir, "book_rules.md", "Golden chapter: always include book rules for behavioral constraints.")
+        : null,
       this.maybeContextSource(
         storyDir,
         "volume_outline.md",
@@ -187,6 +200,22 @@ export class ComposerAgent extends BaseAgent {
       ...volumeSummaryEntries,
       ...hookEntries,
     ];
+  }
+
+  private async alwaysIncludeContextSource(
+    storyDir: string,
+    fileName: string,
+    reason: string,
+  ): Promise<ContextPackage["selectedContext"][number] | null> {
+    const path = join(storyDir, fileName);
+    const content = await this.readFileOrDefault(path);
+    if (!content || content === "(文件尚未创建)") return null;
+
+    return {
+      source: `story/${fileName}`,
+      reason,
+      excerpt: content,
+    };
   }
 
   private async maybeContextSource(
